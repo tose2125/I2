@@ -81,6 +81,13 @@ int main(int argc, char *argv[])
         return EXIT_FAILURE;
     }
 
+    struct sockaddr_in server_addr;
+    socklen_t server_addr_len = sizeof(server_addr);
+    if (getsockname(s, (struct sockaddr *)&server_addr, &server_addr_len) == 0)
+    {
+        fprintf(stdout, "INFO: Listening to port %d\n", ntohs(server_addr.sin_port));
+    }
+
     char data[N + 1];
     int n;
 
