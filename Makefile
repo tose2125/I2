@@ -5,13 +5,13 @@ TARGET = client_recv client_send_recv client_recv_udp client_send_recv_udp serv_
 
 all: $(TARGET)
 
-client_recv: client_recv.o
+client_recv: client_recv.o net.o
 	$(CC) -o $@ $^
-client_send_recv: client_send_recv.o
+client_send_recv: client_send_recv.o net.o
 	$(CC) -o $@ $^
-client_recv_udp: client_recv_udp.o
+client_recv_udp: client_recv_udp.o net.o
 	$(CC) -o $@ $^
-client_send_recv_udp: client_send_recv_udp.o
+client_send_recv_udp: client_send_recv_udp.o net.o
 	$(CC) -o $@ $^
 serv_send: serv_send.o
 	$(CC) -o $@ $^

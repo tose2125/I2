@@ -1,104 +1,40 @@
-#include <stdio.h>
-#include <stdlib.h>
-#include <unistd.h>
-#include <getopt.h>
-#include <errno.h>
-#include <string.h>
-#include <sys/types.h>
-#include <sys/socket.h>
-#include <netinet/in.h>
-#include <netinet/ip.h>
-#include <netinet/tcp.h>
-#include <arpa/inet.h>
+#include <stdio.h>  // stderr
+#include <stdlib.h> // exit
+#include <unistd.h> // close
+#include "net.h"
 
 #define N 1024
 
-int main(int argc, char *argv[])
+int client_recv(int sock)
 {
-    int ret; // Success or failure returned value
-
-    in_addr_t dst_addr = inet_addr("127.0.0.1");
-    in_port_t dst_port = htons(50000);
-
-    int opt;
-    while ((opt = getopt(argc, argv, "a:p:")) != -1)
-    {
-        switch (opt)
-        {
-        case 'a':
-            if (inet_aton(optarg, (struct in_addr *)&dst_addr) != 1)
-            {
-                fprintf(stderr, "ERROR: IP address conversion failed: %s\n", optarg);
-                return EXIT_FAILURE;
-            }
-            break;
-        case 'p':
-            dst_port = htons(strtoul(optarg, NULL, 10));
-            if (errno == ERANGE)
-            {
-                fprintf(stderr, "ERROR: Port number conversion failed: %s\n", optarg);
-                return EXIT_FAILURE;
-            }
-            break;
-        default:
-            fprintf(stderr, "Usage: %s -a dst_addr -p dst_port\n", argv[0]);
-            return EXIT_FAILURE;
-        }
-    }
-
-    int s = socket(PF_INET, SOCK_DGRAM, 0); // UDP socket
-    if (s == -1)
-    {
-        fprintf(stderr, "ERROR: Cannot create a socket: %s\n", strerror(errno));
-        return EXIT_FAILURE;
-    }
-
-    struct sockaddr_in addr;         // IPv4 address & port
-    addr.sin_family = AF_INET;       // Mode IPv4
-    addr.sin_addr.s_addr = dst_addr; // Destination IP address
-    addr.sin_port = dst_port;        // Destination Port number
-    socklen_t addr_len = sizeof(addr);
-
-    /*ret = connect(s, (struct sockaddr *)&addr, sizeof(addr)); // Connect to destination
-    if (ret == -1)
-    {
-        fprintf(stderr, "ERROR: Cannot connect to remote: %s\n", strerror(errno));
-        return EXIT_FAILURE;
-    }*/
-
     char data[N + 1];
     int n;
 
-    data[0] = '\n';
-    if (sendto(s, data, 1, 0, (struct sockaddr *)&addr, sizeof(addr)) < 1)
-    {
-        fprintf(stderr, "ERROR: Cannot send all data\n");
-        return EXIT_FAILURE;
-    }
+    struct sockaddr *src_addr = NULL; // IPv4 address & port
+    socklen_t *src_addr_len = NULL;
 
-    int eod = 0;
     while (1)
     {
-        if ((n = recvfrom(s, data, N, 0, (struct sockaddr *)&addr, &addr_len)) == 0)
+        if ((n = recvfrom(sock, data, N, 0, src_addr, src_addr_len)) == 0)
         {
-            fprintf(stderr, "Info: Receive 0 bytes\n");
+            fprintf(stderr, "INFO: Receive 0 bytes\n");
             break;
         }
         if (n == N)
         {
-            eod = 1;
+            int eod = 1;
             for (int i = 0; i < n; i++)
             {
-                if (data[i] != '\n')
+                if (data[i] != UDP_EOD)
                 {
                     eod = 0;
                     break;
                 }
             }
-        }
-        if (eod)
-        {
-            break;
+            if (eod)
+            {
+                break;
+            }
         }
         for (int i = 0; i < n; i++)
         {
@@ -106,18 +42,36 @@ int main(int argc, char *argv[])
         }
     }
 
-    /*ret = shutdown(s, SHUT_WR); // Stop sending data
-    if (ret == -1)
-    {
-        fprintf(stderr, "ERROR: Cannot shutdown the connection: %s\n", strerror(errno));
-        return EXIT_FAILURE;
-    }*/
+    return EXIT_SUCCESS;
+}
 
-    ret = close(s); // Close the socket
+int main(int argc, char *argv[])
+{
+    int ret; // Success or failure returned value
+
+    in_addr_t dst_addr = inet_addr("127.0.0.1");
+    in_port_t dst_port = htons(50000);
+    ret = parse_optarg_client(argc, argv, &dst_addr, &dst_port);
+    if (ret != 0)
+    {
+        fprintf(stderr, "ERROR: Failed to parse option arguments\n");
+        exit(EXIT_FAILURE);
+    }
+
+    int sock = connect_udp_client(&dst_addr, &dst_port); // UDP socket
+    if (sock == -1)
+    {
+        fprintf(stderr, "ERROR: Failed to establish connection\n");
+        exit(EXIT_FAILURE);
+    }
+
+    client_recv(sock); // Receive data from remote and print to stdout
+
+    ret = close(sock); // Close the socket
     if (ret == -1)
     {
-        fprintf(stderr, "ERROR: Cannot close the socket: %s\n", strerror(errno));
-        return EXIT_FAILURE;
+        fprintf(stderr, "ERROR: Failed to close the socket: %s\n", strerror(errno));
+        exit(EXIT_FAILURE);
     }
 
     return EXIT_SUCCESS;

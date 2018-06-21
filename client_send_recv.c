@@ -1,17 +1,40 @@
-#include <stdio.h>
-#include <stdlib.h>
-#include <unistd.h>
-#include <getopt.h>
-#include <errno.h>
-#include <string.h>
-#include <sys/types.h>
-#include <sys/socket.h>
-#include <netinet/in.h>
-#include <netinet/ip.h>
-#include <netinet/tcp.h>
-#include <arpa/inet.h>
+#include <stdio.h>  // stderr
+#include <stdlib.h> // exit
+#include <unistd.h> // close
+#include "net.h"
 
 #define N 128
+
+int client_send_recv(int sock)
+{
+    char data[N + 1]; // Buffer
+
+    int n, i;
+    while ((n = fread(data, sizeof(char), N, stdin)) > 0)
+    {
+        if (send(sock, data, n, 0) < n)
+        {
+            fprintf(stderr, "ERROR: Failed to send all data\n");
+            return EXIT_FAILURE;
+        }
+    }
+
+    if (shutdown(sock, SHUT_WR) == -1)// Stop sending data
+    {
+        fprintf(stderr, "ERROR: Failed to shutdown the connection: %s\n", strerror(errno));
+        return EXIT_FAILURE;
+    }
+
+    while ((n = recv(sock, data, N, 0)) > 0)
+    {
+        for (i = 0; i < n; i++)
+        {
+            putchar(data[i]);
+        }
+    }
+
+    return EXIT_SUCCESS;
+}
 
 int main(int argc, char *argv[])
 {
@@ -19,92 +42,27 @@ int main(int argc, char *argv[])
 
     in_addr_t dst_addr = inet_addr("127.0.0.1");
     in_port_t dst_port = htons(50000);
-
-    int opt;
-    while ((opt = getopt(argc, argv, "a:p:")) != -1)
+    ret = parse_optarg_client(argc, argv, &dst_addr, &dst_port);
+    if (ret != 0)
     {
-        switch (opt)
-        {
-        case 'a':
-            if (inet_aton(optarg, (struct in_addr *)&dst_addr) != 1)
-            {
-                fprintf(stderr, "ERROR: IP address conversion failed: %s\n", optarg);
-                return EXIT_FAILURE;
-            }
-            break;
-        case 'p':
-            dst_port = htons(strtoul(optarg, NULL, 10));
-            if (errno == ERANGE)
-            {
-                fprintf(stderr, "ERROR: Port number conversion failed: %s\n", optarg);
-                return EXIT_FAILURE;
-            }
-            break;
-        default:
-            fprintf(stderr, "Usage: %s -a dst_addr -p dst_port\n", argv[0]);
-            return EXIT_FAILURE;
-        }
+        fprintf(stderr, "ERROR: Failed to parse option arguments\n");
+        exit(EXIT_FAILURE);
     }
 
-    int s = socket(PF_INET, SOCK_STREAM, 0); // TCP socket
-    if (s == -1)
+    int sock = connect_tcp_client(&dst_addr, &dst_port); // TCP socket
+    if (sock == -1)
     {
-        fprintf(stderr, "ERROR: Cannot create a socket: %s\n", strerror(errno));
-        return EXIT_FAILURE;
+        fprintf(stderr, "ERROR: Failed to establish connection\n");
+        exit(EXIT_FAILURE);
     }
 
-    struct sockaddr_in addr;         // IPv4 address & port
-    addr.sin_family = AF_INET;       // Mode IPv4
-    addr.sin_addr.s_addr = dst_addr; // Destination IP address
-    addr.sin_port = dst_port;        // Destination Port number
+    client_send_recv(sock); // Receive data from remote and print to stdout after send data from stdin to remote
 
-    ret = connect(s, (struct sockaddr *)&addr, sizeof(addr)); // Connect to destination
+    ret = close(sock); // Close the socket
     if (ret == -1)
     {
-        fprintf(stderr, "ERROR: Cannot connect to remote: %s\n", strerror(errno));
-        return EXIT_FAILURE;
-    }
-
-    char data[N + 1];
-    int n;
-
-    while (1)
-    {
-        if ((n = fread(data, sizeof(char), N, stdin)) == 0)
-        {
-            break;
-        }
-        if (send(s, data, n, 0) < n)
-        {
-            fprintf(stderr, "ERROR: Cannot send all data\n");
-            return EXIT_FAILURE;
-        }
-    }
-    
-    ret = shutdown(s, SHUT_WR); // Stop sending data
-    if (ret == -1)
-    {
-        fprintf(stderr, "ERROR: Cannot shutdown the connection: %s\n", strerror(errno));
-        return EXIT_FAILURE;
-    }
-
-    while (1)
-    {
-        if ((n = recv(s, data, N, 0)) == 0)
-        {
-            break;
-        }
-        for (int i = 0; i < n; i++)
-        {
-            putchar(data[i]);
-        }
-    }
-
-    ret = close(s); // Close the socket
-    if (ret == -1)
-    {
-        fprintf(stderr, "ERROR: Cannot close the socket: %s\n", strerror(errno));
-        return EXIT_FAILURE;
+        fprintf(stderr, "ERROR: Failed to close the socket: %s\n", strerror(errno));
+        exit(EXIT_FAILURE);
     }
 
     return EXIT_SUCCESS;
